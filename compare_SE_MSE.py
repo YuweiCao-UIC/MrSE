@@ -46,10 +46,14 @@ class SE:
     for comm in self.division.values():
       g = self.get_cut(comm)
       v = self.get_volume(comm)
-      SE += - (g / self.vol) * math.log2(v / self.vol)
+      #print(g, self.vol, v)
+      if v != 0:
+        SE += - (g / self.vol) * math.log2(v / self.vol)
       for node in comm:
         d = self.graph.in_degree(node, weight = 'weight')
-        SE += - (d / self.vol) * math.log2(d / v)
+        #print(d, self.vol, v)
+        if d != 0:
+          SE += - (d / self.vol) * math.log2(d / v)
     return SE
 
   def update_struc_data(self):
@@ -912,27 +916,48 @@ def vanilla_2D_MSE_mini(A, division = None):
 
   return MSE_1d, comms, MSE_2d
 
-def hier_2D_MSE_mini(A, division = None, n = 100):
+def hier_2D_MSE_mini(A, n = 100):
+  n_relations, n_clusters = A.shape[0], A.shape[1]
+
+  if n >= n_clusters:
+    MSE_1d, comms, MSE_2d = vanilla_2D_MSE_mini(A)
+    return MSE_1d, comms, MSE_2d
+
   seg = MSE(A)
-  MSE_1d = seg.calc_1dSE()  
+  MSE_1d = seg.calc_1dSE()
 
-  if division is None:
-    seg.init_division()
-  else:
-    seg.division = division
-
+  all_comms = [[i] for i in range(n_clusters)]
+  all_sub_comms = [all_comms[i*n: min((i+1)*n, len(all_comms))] for i in range(math.ceil(len(all_comms)/n))]
+  while True:
+    #print('all_comms', all_comms)
+    last_all_comms = copy.deepcopy(all_comms)
+    all_comms = []
+    for sub_comms in all_sub_comms:
+      split = list(chain(*sub_comms))
+      #print(' split', split)
+      sub_A = A[np.ix_([i for i in range(n_relations)], split, split)]
+      sub_seg = MSE(sub_A)
+      sub_seg.division = split2division_0504(split, sub_comms)
+      sub_seg.update_struc_data()
+      sub_seg.update_struc_data_2d()
+      sub_seg.update_division_MinSE()
+      all_comms += division2split_0504(split, sub_seg.division.values())
+    if len(all_sub_comms) == 1:
+      break
+    all_comms.sort()
+    if last_all_comms == all_comms:
+      n *= 2
+    all_sub_comms = [all_comms[i*n: min((i+1)*n, len(all_comms))] for i in range(math.ceil(len(all_comms)/n))]
+  
+  seg.division = {i:cluster for i, cluster in enumerate(all_comms)}
   seg.update_struc_data()
   seg.update_struc_data_2d()
-  seg.update_division_MinSE_hier(n = n)
-  comms = seg.division
-
   MSE_2d = 0
   for vname in seg.division.keys():
     MSE_2d += seg.struc_data[vname][3]
     MSE_2d += seg.struc_data[vname][4]
-  assert math.isclose(MSE_2d, seg.calc_2dSE())
 
-  return MSE_1d, comms, MSE_2d
+  return MSE_1d, seg.division, MSE_2d
 
 def test_MSE():
   '''
@@ -1021,8 +1046,59 @@ def test_SE_3():
   print('Minimized 2D SE: ', SE_2d)
   print('Detected communities: ', comms)
 
+def test_SE_r1():
+  A = np.array(
+     [[0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0],
+      [0, 1, 0, 0, 1],
+      [0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0]])
+  seg = SE(A)
+  print('1D SE: ', seg.calc_1dSE())
+  seg.init_division()
+  print('Initial 2D SE: ', seg.calc_2dSE())
+
+  SE_1d, comms, SE_2d = vanilla_2D_SE_mini(A)
+  print('Minimized 2D SE: ', SE_2d)
+  print('Detected communities: ', comms)
+
+def test_SE_r2():
+  A = np.array(
+     [[0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0],
+      [0, 0, 0, 1, 0],
+      [0, 0, 0, 0, 1],
+      [1, 0, 0, 0, 0]])
+  seg = SE(A)
+  print('1D SE: ', seg.calc_1dSE())
+  seg.init_division()
+  print('Initial 2D SE: ', seg.calc_2dSE())
+
+  SE_1d, comms, SE_2d = vanilla_2D_SE_mini(A)
+  print('Minimized 2D SE: ', SE_2d)
+  print('Detected communities: ', comms)
+
+def test_SE_r3():
+  A = np.array(
+     [[0, 1, 0, 0, 0],
+      [0, 0, 1, 0, 0],
+      [1, 0, 0, 1, 0],
+      [0, 0, 0, 0, 1],
+      [0, 0, 0, 0, 0]])
+  seg = SE(A)
+  print('1D SE: ', seg.calc_1dSE())
+  seg.init_division()
+  print('Initial 2D SE: ', seg.calc_2dSE())
+
+  SE_1d, comms, SE_2d = vanilla_2D_SE_mini(A)
+  print('Minimized 2D SE: ', SE_2d)
+  print('Detected communities: ', comms)
+
 if __name__ == "__main__":
-    test_MSE()
+    #test_MSE()
     #test_SE_1()
     #test_SE_2()
     #test_SE_3()
+    #test_SE_r1()
+    #test_SE_r2()
+    test_SE_r3()
